@@ -105,11 +105,8 @@ class Language:
                         pass
                     return
 
-                # Get user's preferred language (falls back to "en")
-                lang_code = "en"
-                user = getattr(fallen, "from_user", None)
-                if user:
-                    lang_code = await db.get_lang(user.id)
+                # Get chat's preferred language (falls back to "en")
+                lang_code = await db.get_lang(chat.id)
 
                 lang_dict = self.get_merged_lang(lang_code)
 
