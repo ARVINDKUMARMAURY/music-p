@@ -497,7 +497,7 @@ async def _setlang(_, query: types.CallbackQuery):
     if code not in _LANG_NAMES:
         return await query.answer("❌ Invalid language.", show_alert=True)
     lang_name = _LANG_NAMES[code]
-    await db.set_lang(query.from_user.id, code)
+    await db.set_lang(query.message.chat.id, code)
     new_lang = lang.get_merged_lang(code)
     confirmation = new_lang["lang_changed"].format(lang_name)
     await query.answer()
