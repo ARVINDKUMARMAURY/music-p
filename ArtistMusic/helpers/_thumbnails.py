@@ -29,8 +29,10 @@ SIZE = (1280, 720)
 BRAND_TEXT = "✦ 𝗔𝗿𝘁𝗶𝘀𝘁𝗕𝗼𝘁𝘀 ✦"
 BRAND_X = 40
 BRAND_Y = 30
-ACCENT_COLOR = (255, 196, 61, 255)  
-PILL_COLOR = (0, 0, 0, 110)          
+ACCENT_COLOR = (255, 196, 61, 255)   # yellow - used for "B"
+RED_COLOR = (230, 57, 53, 255)       # red - used for "A"
+PILL_COLOR = (0, 0, 0, 110)
+DARK_OVERLAY_ALPHA = 90              # extra darkening over the whole thumbnail
 
 
 def _load_font(paths, size):
@@ -46,7 +48,7 @@ class Thumbnail:
     def __init__(self):
         self.brand_font = _load_font(
             [
-                "ArtistMusic/helpers/Raleway-BoldItalic.ttf",
+                "ArtistMusic/helpers/DejaVuSans-Bold.ttf",
                 "ArtistMusic/helpers/Raleway-Bold.ttf",
             ],
             30
@@ -81,11 +83,16 @@ class Thumbnail:
         """Draws an attractive glowing badge-style watermark on bg (RGBA)."""
         draw = ImageDraw.Draw(bg)
 
-        # split text so "X" can be highlighted in accent color
-        prefix, x_char, suffix = "✦ 𝗔𝗿𝘁𝗶𝘀𝘁𝗕𝗼𝘁𝘀 ✦"
-
-        # measure full text box for the pill background
-        full_text = prefix + x_char + suffix
+        # split text into segments so "A" (red) and "B" (yellow) can be
+        # highlighted independently, rest stays white
+        segments = [
+            ("✦ ", (255, 255, 255, 255)),
+            ("𝗔", RED_COLOR),
+            ("𝗿𝘁𝗶𝘀𝘁", (255, 255, 255, 255)),
+            ("𝗕", ACCENT_COLOR),
+            ("𝗼𝘁𝘀 ✦", (255, 255, 255, 255)),
+        ]
+        full_text = "".join(seg for seg, _ in segments)
         bbox = draw.textbbox((0, 0), full_text, font=self.brand_font)
         text_w = bbox[2] - bbox[0]
         text_h = bbox[3] - bbox[1]
@@ -117,14 +124,12 @@ class Thumbnail:
         shadow_draw.text((BRAND_X + 2, BRAND_Y + 2), full_text, font=self.brand_font, fill=(0, 0, 0, 190))
         bg.alpha_composite(shadow_layer)
 
-        # 4. final crisp text, drawn segment by segment for the accent color
+        # 4. final crisp text, drawn segment by segment for per-letter color
         draw = ImageDraw.Draw(bg)
         cx = BRAND_X
-        draw.text((cx, BRAND_Y), prefix, font=self.brand_font, fill=(255, 255, 255, 255))
-        cx += draw.textlength(prefix, font=self.brand_font)
-        draw.text((cx, BRAND_Y), x_char, font=self.brand_font, fill=ACCENT_COLOR)
-        cx += draw.textlength(x_char, font=self.brand_font)
-        draw.text((cx, BRAND_Y), suffix, font=self.brand_font, fill=(255, 255, 255, 255))
+        for seg_text, seg_color in segments:
+            draw.text((cx, BRAND_Y), seg_text, font=self.brand_font, fill=seg_color)
+            cx += draw.textlength(seg_text, font=self.brand_font)
 
         return bg
 
@@ -152,6 +157,11 @@ class Thumbnail:
                 bg = resized.crop(
                     (left, top, left + size[0], top + size[1])
                 ).convert("RGBA")
+
+            # darken the whole thumbnail a bit so the watermark and any
+            # overlaid text pop more against busy/bright source images
+            overlay = Image.new("RGBA", bg.size, (0, 0, 0, DARK_OVERLAY_ALPHA))
+            bg.alpha_composite(overlay)
 
             bg = self._draw_brand(bg)
 
