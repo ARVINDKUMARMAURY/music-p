@@ -94,8 +94,6 @@ class MongoDB:
         self.users = []
         self.usersdb = self.db.users
 
-        self.songcachedb = self.db.song_cache
-
         self.user_lang = {}  # Cache: per-user language preference (chat-independent)
         self.userlangdb = self.db.userlang
 
@@ -119,7 +117,6 @@ class MongoDB:
                 await self.authdb.create_index("_id")
                 await self.langdb.create_index("_id")
                 await self.cache.create_index("_id")
-                await self.songcachedb.create_index("_id")
                 await self.userlangdb.create_index("_id")
 
                 await self.load_cache()
@@ -418,42 +415,6 @@ class MongoDB:
             {"$set": {"status": status}},
             upsert=True,
         )
-
-    # SONG CACHE METHODS (instant replay via logger group)
-    def _song_cache_id(self, video_id: str, video: bool = False) -> str:
-        """Build a unique cache key for a video/audio track."""
-        return f"{video_id}_{'v' if video else 'a'}"
-
-    async def get_song_cache(self, video_id: str, video: bool = False) -> dict | None:
-        """Get cached Telegram file_id/message_id for a previously played track."""
-        doc = await self.songcachedb.find_one({"_id": self._song_cache_id(video_id, video)})
-        return doc
-
-    async def set_song_cache(
-        self,
-        video_id: str,
-        file_id: str,
-        message_id: int,
-        video: bool = False,
-    ) -> None:
-        """Save Telegram file_id/message_id of a track uploaded to the logger group."""
-        await self.songcachedb.update_one(
-            {"_id": self._song_cache_id(video_id, video)},
-            {
-                "$set": {
-                    "video_id": video_id,
-                    "file_id": file_id,
-                    "message_id": message_id,
-                    "video": video,
-                    "time": time(),
-                }
-            },
-            upsert=True,
-        )
-
-    async def delete_song_cache(self, video_id: str, video: bool = False) -> None:
-        """Remove a stale/invalid cache entry (e.g. expired file_id)."""
-        await self.songcachedb.delete_one({"_id": self._song_cache_id(video_id, video)})
 
     # CHANNEL PLAY METHODS
     async def get_cmode(self, chat_id: int) -> int | None:
