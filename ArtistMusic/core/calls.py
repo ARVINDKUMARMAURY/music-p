@@ -178,7 +178,7 @@ class TgCall(PyTgCalls):
                            If None, messages go to same chat as audio (chat_id)
         """
         client = await db.get_assistant(chat_id)
-        _lang = await lang.get_lang(chat_id)
+        _lang = await lang.get_lang_for(getattr(media, "user_id", None), chat_id)
 
         # Determine where messages should go:
         # - If message_chat_id provided (channel play): send to group
@@ -476,7 +476,7 @@ class TgCall(PyTgCalls):
                 pass
 
             media = queue.get_current(chat_id)
-            _lang = await lang.get_lang(chat_id)
+            _lang = await lang.get_lang_for(getattr(media, "user_id", None), chat_id)
             target_chat = message_chat_id if message_chat_id else chat_id
             msg = await app.send_message(chat_id=target_chat, text=_lang["play_again"])
             await self.play_media(chat_id, msg, media, message_chat_id=message_chat_id)
@@ -494,7 +494,7 @@ class TgCall(PyTgCalls):
                 return False
 
             client = await db.get_assistant(chat_id)
-            _lang = await lang.get_lang(chat_id)
+            _lang = await lang.get_lang_for(getattr(media, "user_id", None), chat_id)
 
             message_chat_id = None
             try:
@@ -516,7 +516,7 @@ class TgCall(PyTgCalls):
                 msg = None
 
             if not msg:
-                _lang = await lang.get_lang(chat_id)
+                _lang = await lang.get_lang_for(getattr(media, "user_id", None), chat_id)
                 msg = await app.send_message(chat_id=target_chat, text=_lang["seeking"])
 
             await self.play_media(chat_id, msg, media, seek_time=seconds, message_chat_id=message_chat_id)
@@ -556,7 +556,7 @@ class TgCall(PyTgCalls):
                 if loop_mode == 1:
                     media = queue.get_current(chat_id)
                     if media:
-                        _lang = await lang.get_lang(chat_id)
+                        _lang = await lang.get_lang_for(getattr(media, "user_id", None), chat_id)
                         try:
                             msg = await app.send_message(chat_id=target_chat, text=_lang["play_again"])
                             await self.play_media(chat_id, msg, media, message_chat_id=message_chat_id)
@@ -577,7 +577,7 @@ class TgCall(PyTgCalls):
                     all_items = queue.get_all(chat_id)
                     if all_items:
                         first_track = all_items[0]
-                        _lang = await lang.get_lang(chat_id)
+                        _lang = await lang.get_lang_for(getattr(first_track, "user_id", None), chat_id)
                         try:
                             msg = await app.send_message(chat_id=target_chat, text="🔁 Looping queue...")
                             if not first_track.file_path:
@@ -623,7 +623,7 @@ class TgCall(PyTgCalls):
                                 f"Could not send auto_end message in {chat_id}: {e}")
                     return await self.stop(chat_id)
 
-                _lang = await lang.get_lang(chat_id)
+                _lang = await lang.get_lang_for(getattr(media, "user_id", None), chat_id)
                 msg = None
                 if not media.file_path:
                     is_live = getattr(media, 'is_live', False)

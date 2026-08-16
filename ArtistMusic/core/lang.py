@@ -80,6 +80,16 @@ class Language:
         lang_code = await db.get_lang(chat_id)
         return self.get_merged_lang(lang_code)
 
+    async def get_lang_for(self, user_id: int | None, chat_id: int) -> dict:
+        """
+        Resolve the language to use: the acting user's personal preference
+        (set from DM or any group) takes priority; falls back to that
+        chat's own language if the user never picked one.
+        """
+        user_code = await db.get_user_lang(user_id) if user_id else None
+        lang_code = user_code or await db.get_lang(chat_id)
+        return self.get_merged_lang(lang_code)
+
     def language(self):
         def decorator(func):
             @wraps(func)
@@ -105,10 +115,12 @@ class Language:
                         pass
                     return
 
-                # Get chat's preferred language (falls back to "en")
-                lang_code = await db.get_lang(chat.id)
+                # Prefer the acting user's own language (set anywhere: DM or
+                # any group) over the chat's language, so it follows them.
+                user = getattr(fallen, "from_user", None)
+                user_id = user.id if user else None
 
-                lang_dict = self.get_merged_lang(lang_code)
+                lang_dict = await self.get_lang_for(user_id, chat.id)
 
                 setattr(fallen, "lang", lang_dict)
                 return await func(*args, **kwargs)

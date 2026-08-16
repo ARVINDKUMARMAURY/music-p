@@ -94,6 +94,11 @@ class MongoDB:
         self.users = []
         self.usersdb = self.db.users
 
+        self.songcachedb = self.db.song_cache
+
+        self.user_lang = {}  # Cache: per-user language preference (chat-independent)
+        self.userlangdb = self.db.userlang
+
     async def connect(self) -> None:
         """Check if we can connect to the database with exponential backoff retry logic.
 
@@ -114,6 +119,8 @@ class MongoDB:
                 await self.authdb.create_index("_id")
                 await self.langdb.create_index("_id")
                 await self.cache.create_index("_id")
+                await self.songcachedb.create_index("_id")
+                await self.userlangdb.create_index("_id")
 
                 await self.load_cache()
                 return  # Success, exit the function
@@ -308,6 +315,22 @@ class MongoDB:
             self.lang[chat_id] = doc["lang"] if doc else "en"
         return self.lang[chat_id]
 
+    # PER-USER LANGUAGE METHODS (follows the user across DM + every group)
+    async def set_user_lang(self, user_id: int, lang_code: str) -> None:
+        await self.userlangdb.update_one(
+            {"_id": user_id},
+            {"$set": {"lang": lang_code}},
+            upsert=True,
+        )
+        self.user_lang[user_id] = lang_code
+
+    async def get_user_lang(self, user_id: int) -> str | None:
+        """Returns the user's personal language, or None if they never set one."""
+        if user_id not in self.user_lang:
+            doc = await self.userlangdb.find_one({"_id": user_id})
+            self.user_lang[user_id] = doc["lang"] if doc else None
+        return self.user_lang[user_id]
+
     # MAINTENANCE MODE METHODS
     async def set_maintenance(self, status: bool) -> None:
         """Enable or disable maintenance mode."""
@@ -395,6 +418,42 @@ class MongoDB:
             {"$set": {"status": status}},
             upsert=True,
         )
+
+    # SONG CACHE METHODS (instant replay via logger group)
+    def _song_cache_id(self, video_id: str, video: bool = False) -> str:
+        """Build a unique cache key for a video/audio track."""
+        return f"{video_id}_{'v' if video else 'a'}"
+
+    async def get_song_cache(self, video_id: str, video: bool = False) -> dict | None:
+        """Get cached Telegram file_id/message_id for a previously played track."""
+        doc = await self.songcachedb.find_one({"_id": self._song_cache_id(video_id, video)})
+        return doc
+
+    async def set_song_cache(
+        self,
+        video_id: str,
+        file_id: str,
+        message_id: int,
+        video: bool = False,
+    ) -> None:
+        """Save Telegram file_id/message_id of a track uploaded to the logger group."""
+        await self.songcachedb.update_one(
+            {"_id": self._song_cache_id(video_id, video)},
+            {
+                "$set": {
+                    "video_id": video_id,
+                    "file_id": file_id,
+                    "message_id": message_id,
+                    "video": video,
+                    "time": time(),
+                }
+            },
+            upsert=True,
+        )
+
+    async def delete_song_cache(self, video_id: str, video: bool = False) -> None:
+        """Remove a stale/invalid cache entry (e.g. expired file_id)."""
+        await self.songcachedb.delete_one({"_id": self._song_cache_id(video_id, video)})
 
     # CHANNEL PLAY METHODS
     async def get_cmode(self, chat_id: int) -> int | None:
