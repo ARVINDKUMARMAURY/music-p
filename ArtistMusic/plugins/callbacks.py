@@ -198,6 +198,7 @@ async def _controls(_, query: types.CallbackQuery):
     elif action == "replay":
         media = queue.get_current(chat_id)
         media.user = user
+        media.user_id = query.from_user.id
         await tune.replay(chat_id)
         status = query.lang["replayed"]
         reply = query.lang["play_replayed"].format(user)
@@ -497,7 +498,9 @@ async def _setlang(_, query: types.CallbackQuery):
     if code not in _LANG_NAMES:
         return await query.answer("❌ Invalid language.", show_alert=True)
     lang_name = _LANG_NAMES[code]
-    await db.set_lang(query.message.chat.id, code)
+    # Saved against the user, not the chat — so it follows them into DM
+    # and every group, instead of only affecting the chat they clicked in.
+    await db.set_user_lang(query.from_user.id, code)
     new_lang = lang.get_merged_lang(code)
     confirmation = new_lang["lang_changed"].format(lang_name)
     await query.answer()
