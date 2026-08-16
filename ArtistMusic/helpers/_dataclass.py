@@ -27,6 +27,7 @@ class Media:
     url: str
     time: int = 0
     user: str = None
+    user_id: int = None
     is_live: bool = False
     video: bool = False  # ← ADDED
 
@@ -44,6 +45,7 @@ class Track:
     time: int = 0
     thumbnail: str = None
     user: str = None
+    user_id: int = None
     view_count: str = None
     is_live: bool = False
     video: bool = False  # ← ADDED
