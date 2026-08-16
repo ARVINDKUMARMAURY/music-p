@@ -28,7 +28,7 @@ from typing import Optional, Union
 
 from pyrogram import enums, types
 from py_yt import Playlist, VideosSearch
-from ArtistMusic import config, logger, app, db
+from ArtistMusic import config, logger
 from ArtistMusic.helpers import Track, utils
 
 
@@ -596,95 +596,6 @@ class YouTube:
             logger.error(f"Playlist extraction error: {e}")
             raise
 
-    async def try_logger_cache(self, video_id: str, video: bool = False) -> Optional[str]:
-        """
-        Check if this track was already played before and cached in the logger
-        group. If so, pull it straight from Telegram (fast, no yt-dlp/API call
-        needed) instead of downloading it from YouTube again.
-
-        Args:
-            video_id: YouTube video ID
-            video: True to look up the video cache, False for audio
-
-        Returns:
-            Path to the downloaded file, or None if there's no valid cache.
-        """
-        if not config.LOGGER_ID:
-            return None
-
-        cached = await db.get_song_cache(video_id, video=video)
-        if not cached:
-            return None
-
-        file_id = cached.get("file_id")
-        if not file_id:
-            return None
-
-        os.makedirs("downloads", exist_ok=True)
-        file_path = f"downloads/{video_id}.{'mp4' if video else 'mp3'}"
-
-        if os.path.exists(file_path):
-            logger.info(f"⚡ [CACHE HIT] {video_id} already on disk")
-            return file_path
-
-        try:
-            logger.info(f"⚡ [CACHE HIT] Fetching {video_id} from logger group...")
-            downloaded = await app.download_media(file_id, file_name=file_path)
-            if downloaded and os.path.exists(downloaded):
-                logger.info(f"✅ [CACHE] Served {video_id} instantly from logger group")
-                return downloaded
-        except Exception as e:
-            # file_id may have expired or the message was deleted from the
-            # logger group — fall back to a normal download and re-cache it.
-            logger.warning(f"⚠️ Logger cache fetch failed for {video_id}: {e}")
-            await db.delete_song_cache(video_id, video=video)
-
-        return None
-
-    async def cache_to_logger(self, video_id: str, file_path: str, video: bool = False) -> None:
-        """
-        Upload a freshly downloaded track to the logger group and remember its
-        file_id, so the next time anyone (in any group) plays the same song it
-        can be served instantly from Telegram instead of being re-downloaded.
-
-        Runs as a fire-and-forget background task so it never delays playback.
-        """
-        if not config.LOGGER_ID:
-            return
-
-        try:
-            caption = f"🎵 <b>Cached Track</b>\n\n<b>ID:</b> <code>{video_id}</code>"
-            if video:
-                sent = await app.send_video(
-                    chat_id=config.LOGGER_ID,
-                    video=file_path,
-                    caption=caption,
-                    disable_notification=True,
-                )
-            else:
-                sent = await app.send_audio(
-                    chat_id=config.LOGGER_ID,
-                    audio=file_path,
-                    caption=caption,
-                    disable_notification=True,
-                )
-
-            # The requested type (audio/video) and the actual container
-            # Telegram stores it as can differ — e.g. an "audio" request
-            # sometimes only has a muxed video+audio stream available, so
-            # Telegram may file it under .video or .document instead of
-            # .audio. Grab whichever field actually came back.
-            media_obj = sent.audio or sent.video or sent.document or sent.voice
-            if not media_obj:
-                logger.warning(f"⚠️ Logger upload for {video_id} returned no usable media object")
-                return
-
-            tg_file_id = media_obj.file_id
-            await db.set_song_cache(video_id, tg_file_id, sent.id, video=video)
-            logger.info(f"📥 Cached {video_id} to logger group for instant future plays")
-        except Exception as e:
-            logger.warning(f"⚠️ Failed to cache {video_id} to logger group: {e}")
-
     async def download(self, video_id: str, is_live: bool = False, video: bool = False) -> Optional[str]:
         """
         Download audio/video from YouTube.
@@ -744,12 +655,6 @@ class YouTube:
                 logger.error(f"Live stream URL extraction timed out for {video_id}")
                 return None
 
-        # ⚡ Try instant cache from logger group first (same song played before
-        # in any group gets served straight from Telegram, no re-download)
-        cached_path = await self.try_logger_cache(video_id, video=video)
-        if cached_path:
-            return cached_path
-
         # Normal video/audio download - API FIRST, then cookies
         result = None
         
@@ -760,7 +665,6 @@ class YouTube:
             
             if result:
                 logger.info(f"✅ [SUCCESS] Downloaded via API: {video_id}")
-                asyncio.create_task(self.cache_to_logger(video_id, result, video=video))
                 return result
             else:
                 logger.warning(f"⚠️ [API FAILED] {video_id}, trying cookies fallback...")
@@ -772,7 +676,6 @@ class YouTube:
             
             if result:
                 logger.info(f"✅ [SUCCESS] Downloaded via cookies: {video_id}")
-                asyncio.create_task(self.cache_to_logger(video_id, result, video=video))
                 return result
             else:
                 logger.error(f"❌ [COOKIES FAILED] Could not download {video_id}")
