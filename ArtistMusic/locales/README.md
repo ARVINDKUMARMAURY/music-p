@@ -1,5 +1,11 @@
 <div align="center">
 
+<img src="https://files.catbox.moe/f4nnyn.svg" width="100%" height="500">
+
+<br>
+
+<div align="center">
+
 # 🎵 Multi-Language Telegram Music & Tournament Bot
 
 A feature-rich, high-performance, and lag-free Telegram Music Bot designed for seamless voice chat streaming, playlist management, and group tournaments.
