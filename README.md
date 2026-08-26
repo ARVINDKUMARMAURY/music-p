@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="https://files.catbox.moe/3p0du3.jpeg" width="180px" style="border-radius:50%">
+<img src="https://files.catbox.moe/f4nnyn.svg" width="100%" height="500">
 
 <br>
 <br><br>
@@ -9,13 +9,6 @@
 [![Forks](https://img.shields.io/github/forks/elevenyts/ArtistMusic?style=for-the-badge&logo=git&logoColor=white&color=7C3AED&labelColor=0D1117)](https://github.com/elevenyts/ArtistMusic)
 [![Issues](https://img.shields.io/github/issues/elevenyts/ArtistMusic?style=for-the-badge&logo=github&logoColor=white&color=FF6B6B&labelColor=0D1117)](https://github.com/elevenyts/ArtistMusic/issues)
 [![License](https://img.shields.io/badge/License-MIT-A960FF?style=for-the-badge&logo=opensourceinitiative&logoColor=white&labelColor=0D1117)](LICENSE)
-
-<br>
-
-[![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white&labelColor=0D1117)](https://python.org)
-[![Pyrogram](https://img.shields.io/badge/Pyrogram-Latest-A960FF?style=for-the-badge&logo=telegram&logoColor=white&labelColor=0D1117)](https://pyrogram.org)
-[![MongoDB](https://img.shields.io/badge/MongoDB-Database-47A248?style=for-the-badge&logo=mongodb&logoColor=white&labelColor=0D1117)](https://mongodb.com)
-[![PyTgCalls](https://img.shields.io/badge/PyTgCalls-Voice_Chat-7C3AED?style=for-the-badge&logo=telegram&logoColor=white&labelColor=0D1117)](https://pytgcalls.github.io)
 
 <br>
 
