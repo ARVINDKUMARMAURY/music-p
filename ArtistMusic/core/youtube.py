@@ -218,10 +218,18 @@ class YouTube:
         file_ext = ".mp4" if video else ".mp3"
         file_path = os.path.join(DOWNLOAD_DIR, f"{video_id}{file_ext}")
 
-        # Check if already downloaded
-        if os.path.exists(file_path):
-            logger.debug(f"File already exists: {file_path}")
-            return file_path
+        # Check if already downloaded — but don't trust a cached file
+        # blindly. If a previous attempt was interrupted (bot restart,
+        # crash, network drop) it can leave a corrupt/incomplete file with
+        # the same name sitting on disk forever, which would otherwise be
+        # served forever without ever being re-downloaded.
+        if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
+            if self._looks_like_valid_media(file_path):
+                logger.debug(f"File already exists and looks valid: {file_path}")
+                return file_path
+            else:
+                logger.warning(f"⚠️ Found existing but invalid/corrupt cached file, re-downloading: {file_path}")
+                os.remove(file_path)
 
         try:
             download_type = "video" if video else "audio"
@@ -259,6 +267,26 @@ class YouTube:
                         except:
                             logger.error(f"API returned status {response.status}")
                         return None
+
+                    # Reject responses that are error pages disguised as
+                    # a 200 OK (some APIs still return JSON/HTML errors
+                    # with a 200 status). Saving these as .mp3/.mp4 leads
+                    # to a confusing ffprobe crash later.
+                    resp_content_type = response.headers.get("content-type", "")
+                    if resp_content_type and any(
+                        bad in resp_content_type.lower() for bad in ("json", "html", "text/plain")
+                    ):
+                        try:
+                            error_text = await response.text()
+                            logger.error(
+                                f"❌ API returned non-media content-type '{resp_content_type}' "
+                                f"for {video_id}: {error_text[:200]}"
+                            )
+                        except Exception:
+                            logger.error(
+                                f"❌ API returned non-media content-type '{resp_content_type}' for {video_id}"
+                            )
+                        return None
                     
                     # Handle direct binary download
                     logger.info(f"📥 Downloading {download_type} via API for {video_id}...")
@@ -287,11 +315,43 @@ class YouTube:
                                 else:
                                     logger.info(f"📊 Downloaded: {progress_mb:.1f} MB")
                                 last_log = downloaded
+
+                    # Cross-check actual bytes written vs. what the server
+                    # promised via content-length. A short read (connection
+                    # cut early, proxy truncation, etc.) leaves a file that
+                    # LOOKS present and non-empty but is not valid media.
+                    if content_length and downloaded != int(content_length):
+                        logger.error(
+                            f"❌ Download size mismatch for {video_id}: "
+                            f"got {downloaded} bytes, expected {content_length} bytes"
+                        )
+                        if os.path.exists(file_path):
+                            os.remove(file_path)
+                        return None
                     
                     # Verify file was created and has content
                     if os.path.exists(file_path) and os.path.getsize(file_path) > 0:
                         file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
+
+                        if not self._looks_like_valid_media(file_path):
+                            with open(file_path, "rb") as f:
+                                snippet = f.read(300)
+                            logger.error(
+                                f"❌ Downloaded file for {video_id} doesn't look like valid "
+                                f"media (magic bytes check failed): {snippet!r}"
+                            )
+                            os.remove(file_path)
+                            return None
+
                         logger.info(f"✅ [API SUCCESS] Downloaded: {file_path} ({file_size_mb:.2f} MB)")
+
+                        # Temporary diagnostic: run ffprobe right now and log
+                        # its raw stdout/stderr/returncode so we can see
+                        # exactly why pytgcalls' own ffprobe check might be
+                        # failing on this file. Safe to remove once the root
+                        # cause is confirmed and fixed.
+                        await self._debug_ffprobe(file_path)
+
                         return file_path
                     else:
                         logger.error(f"❌ API download failed: file is empty or not created")
@@ -308,6 +368,66 @@ class YouTube:
         except Exception as e:
             logger.error(f"❌ API download failed for {video_id}: {type(e).__name__}: {e}")
             return None
+
+    def _looks_like_valid_media(self, path: str) -> bool:
+        """Sniff the file's magic bytes to make sure the API actually sent
+        real media and not an HTML/JSON error page saved with a .mp3/.mp4
+        extension (which can otherwise slip past a size-only check and lead
+        to a confusing ffprobe/JSONDecodeError crash later)."""
+        try:
+            with open(path, "rb") as f:
+                head = f.read(64)
+        except Exception:
+            return False
+
+        # MP3: ID3 tag, or a raw MPEG audio frame sync (0xFFEx-0xFFFx range)
+        if head.startswith(b"ID3"):
+            return True
+        if len(head) >= 2 and head[0] == 0xFF and (head[1] & 0xE0) == 0xE0:
+            return True
+        # mp4/mov 'ftyp' box (signature sits at bytes 4-8)
+        if len(head) >= 8 and head[4:8] == b"ftyp":
+            return True
+        # webm/mkv (EBML) header, in case the API sends this for "audio" too
+        if head.startswith(b"\x1a\x45\xdf\xa3"):
+            return True
+        # Anything starting with '<' or '{' is almost certainly an
+        # HTML or JSON error page, not media.
+        stripped = head.lstrip()
+        if stripped[:1] in (b"<", b"{"):
+            return False
+        # Unknown but not obviously text -> allow it through; better to let
+        # ffprobe be the final judge than to reject valid-but-unusual files.
+        return True
+
+    async def _debug_ffprobe(self, local_path: str):
+        """Runs the exact same ffprobe command pytgcalls uses internally on
+        the freshly-downloaded file, and logs its full stdout/stderr/return
+        code. This tells us precisely why ffprobe is failing on this file,
+        without needing manual `heroku run bash` access."""
+        cmd = [
+            "ffprobe",
+            "-v", "error",
+            "-show_entries", "stream=width,height,codec_type,codec_name",
+            "-show_format",
+            "-of", "json",
+            "-i", local_path,
+        ]
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=20)
+            logger.info(f"[ffprobe-debug] cmd: {' '.join(cmd)}")
+            logger.info(f"[ffprobe-debug] returncode: {proc.returncode}")
+            logger.info(f"[ffprobe-debug] stdout ({len(stdout)} bytes): {stdout[:1000]!r}")
+            logger.info(f"[ffprobe-debug] stderr ({len(stderr)} bytes): {stderr[:1000]!r}")
+            file_size = os.path.getsize(local_path) if os.path.exists(local_path) else -1
+            logger.info(f"[ffprobe-debug] file size on disk: {file_size} bytes")
+        except Exception as e:
+            logger.error(f"[ffprobe-debug] EXCEPTION running ffprobe: {type(e).__name__}: {e}")
 
     async def download_via_cookies(self, video_id: str, video: bool = False) -> Optional[str]:
         """
