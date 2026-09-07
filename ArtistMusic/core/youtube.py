@@ -182,7 +182,7 @@ class YouTube:
 
     async def download_via_api(self, link: str, video: bool = False) -> Optional[str]:
         """
-        Download audio/video using ArtistBots API (Primary Method).
+        Download audio/video using BabiesIQ API (Primary Method).
         
         Args:
             link: YouTube URL or video ID
@@ -233,29 +233,55 @@ class YouTube:
 
         try:
             download_type = "video" if video else "audio"
-            logger.info(f"🚀 [API PRIMARY] Trying ArtistBots API for {video_id} (type: {download_type})")
-            
-            # Prepare API parameters
-            params = {
-                "url": video_id,
-                "type": download_type,
-            }
-            
+            logger.info(f"🚀 [API PRIMARY] Trying BabiesIQ API for {video_id} (type: {download_type})")
+
             # Add API key if available
             if self.artistbots_key:
-                params["api_key"] = self.artistbots_key
                 logger.debug(f"Using API key: {self.artistbots_key[:8]}...")
             else:
-                logger.warning("No ArtistBots API key configured!")
+                logger.warning("No BabiesIQ API key configured!")
                 return None
-            
+
             async with aiohttp.ClientSession() as session:
-                api_endpoint = f"{self.api_url.rstrip('/')}/download"
-                logger.debug(f"Calling API: {api_endpoint}")
-                
+                # Step 1: resolve the video id to a stream URL.
+                # BabiesIQ exposes separate resource endpoints for audio
+                # ("song") and video ("video") lookups.
+                resolve_path = "video" if video else "song"
+                resolve_endpoint = f"{self.api_url.rstrip('/')}/api/{resolve_path}"
+                resolve_params = {"query": video_id, "api": self.artistbots_key}
+                logger.debug(f"Resolving via BabiesIQ: {resolve_endpoint}")
+
                 async with session.get(
-                    api_endpoint,
-                    params=params,
+                    resolve_endpoint,
+                    params=resolve_params,
+                    timeout=aiohttp.ClientTimeout(total=self.api_timeout),
+                ) as resolve_resp:
+                    if resolve_resp.status != 200:
+                        try:
+                            error_text = await resolve_resp.text()
+                            logger.error(f"BabiesIQ resolve returned status {resolve_resp.status}: {error_text[:200]}")
+                        except Exception:
+                            logger.error(f"BabiesIQ resolve returned status {resolve_resp.status}")
+                        return None
+
+                    try:
+                        resolve_data = await resolve_resp.json(content_type=None)
+                    except Exception as e:
+                        logger.error(f"BabiesIQ resolve returned non-JSON response: {e}")
+                        return None
+
+                stream_url = (resolve_data or {}).get("stream")
+                if not stream_url:
+                    logger.error(f"BabiesIQ response missing 'stream' field for {video_id}: {resolve_data}")
+                    return None
+
+                # Step 2: fetch the actual media from the stream URL.
+                stream_params = {"api": self.artistbots_key}
+                logger.debug(f"Calling BabiesIQ stream: {stream_url}")
+
+                async with session.get(
+                    stream_url,
+                    params=stream_params,
                     timeout=aiohttp.ClientTimeout(total=self.api_stream_timeout),
                 ) as response:
                     logger.debug(f"API response status: {response.status}")
